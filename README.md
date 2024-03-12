@@ -1,6 +1,6 @@
 # Libsql PHP Driver
 
-This library is a PHP driver allowing access to libsl databases.
+This library is a PHP driver allowing access to libsql databases.
 
 ## Example
 
