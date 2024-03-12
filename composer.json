@@ -1,0 +1,17 @@
+{
+    "name": "rexpl/libsql",
+    "description": "Libsql driver, with a PDO like api.",
+    "keywords": ["libsql", "database", "turso"],
+    "type": "package",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Rexpl\\Libsql\\": "src"
+        }
+    },
+    "require": {
+        "phrity/websocket": "^2.1",
+        "phrity/net-uri": "^1.3",
+        "symfony/polyfill-mbstring": "^1.29"
+    }
+}
