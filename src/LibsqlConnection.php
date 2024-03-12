@@ -9,6 +9,7 @@ use Rexpl\Libsql\Contracts\ClientMessage;
 use Rexpl\Libsql\Contracts\Request;
 use Rexpl\Libsql\Contracts\Response;
 use Rexpl\Libsql\Contracts\ServerMessage;
+use Rexpl\Libsql\Contracts\WebsocketDriver;
 use Rexpl\Libsql\Exception\ConnectionException;
 use Rexpl\Libsql\Exception\LibsqlException;
 use Rexpl\Libsql\Hrana\Message\Client\HelloMessage;
@@ -25,15 +26,14 @@ use Rexpl\Libsql\Hrana\Response\OpenStreamResponse;
 use Rexpl\Libsql\Hrana\Statement;
 use Rexpl\Libsql\Hrana\StatementResult;
 use Rexpl\Libsql\Hrana\Version;
-use WebSocket\Client;
-use WebSocket\Exception\ConnectionFailureException;
+use Rexpl\Libsql\Websockets\WebsocketDriverFactory;
 
 class LibsqlConnection
 {
     /**
-     * @var \WebSocket\Client
+     * @var \Rexpl\Libsql\Contracts\WebsocketDriver
      */
-    protected Client $client;
+    protected WebsocketDriver $driver;
 
     /**
      * @var \Rexpl\Libsql\Hrana\Version
@@ -42,11 +42,17 @@ class LibsqlConnection
 
     protected int $streamId = 1;
     protected int $requestId = 1;
-
-    protected bool $isConnected = false;
     protected bool $streamIsOpen = false;
 
     public ?string $lastInsertedRowId = null;
+
+    /**
+     * @param \Rexpl\Libsql\Contracts\WebsocketDriver|null $driver
+     */
+    public function __construct(?WebsocketDriver $driver)
+    {
+        $this->driver = $driver ?: WebsocketDriverFactory::create();
+    }
 
     /**
      * @param string $url
@@ -55,7 +61,6 @@ class LibsqlConnection
      * @param string $libraryVersion
      *
      * @return Version The negotiated protocol version.
-     * @throws \Rexpl\Libsql\Exception\ConnectionException On failure.
      */
     public function connect(string $url, \SensitiveParameterValue $token, bool $secure, string $libraryVersion): Version
     {
@@ -65,23 +70,10 @@ class LibsqlConnection
             $uri = $uri->withScheme($secure ? 'wss' : 'ws');
         }
 
-        $this->client = new Client($uri);
-
-        try {
-            $this->client->addMiddleware(new \WebSocket\Middleware\CloseHandler())
-                ->addMiddleware(new \WebSocket\Middleware\PingResponder())
-                ->addHeader('Sec-WebSocket-Protocol', 'hrana3')
-                ->addHeader('X-Libsql-Client-Version', \sprintf('libsql-remote-php-%s', $libraryVersion))
-                ->connect();
-        } catch (\WebSocket\Exception\ClientException $clientException) {
-            throw new ConnectionException(
-                \sprintf('Underlying websocket connection failed (%s).', $clientException->getMessage()),
-                previous: $clientException
-            );
-        }
-
-        $this->isConnected = true;
-        $response = $this->client->getHandshakeResponse();
+        $response = $this->driver->connect($uri, [
+            'Sec-WebSocket-Protocol' => 'hrana3',
+            'X-Libsql-Client-Version' => \sprintf('libsql-remote-php-%s', $libraryVersion),
+        ]);
 
         if (
             $response->hasHeader('Sec-WebSocket-Protocol')
@@ -132,7 +124,7 @@ class LibsqlConnection
 
     public function isConnected(): bool
     {
-        return $this->client->isConnected();
+        return $this->driver->isConnected();
     }
 
     public function getStreamId(): int
@@ -142,7 +134,7 @@ class LibsqlConnection
 
     public function disconnect(bool $closeStreams = true): void
     {
-        if (!$this->isConnected) {
+        if (!$this->driver->isConnected()) {
             return;
         }
 
@@ -155,10 +147,7 @@ class LibsqlConnection
             }
         }
 
-        $this->client->onDisconnect(function () {});
-        $this->client->close();
-
-        $this->isConnected = false;
+        $this->driver->disconnect();
     }
 
     /**
@@ -212,19 +201,7 @@ class LibsqlConnection
         $preparedMessage = $message->getMessage($this->version);
         $jsonMessage = \json_encode($preparedMessage);
 
-        try {
-            $this->client->text($jsonMessage);
-            $response = $this->client->receive();
-        } catch (ConnectionFailureException $exception) {
-
-            if ($this->client->isConnected()) {
-                $this->disconnect();
-            }
-
-            throw new ConnectionException($exception->getMessage(), previous: $exception);
-        }
-
-        $receivedJsonMessage = $response->getContent();
+        $receivedJsonMessage = $this->driver->textMessage($jsonMessage);
 
         $receivedMessage = \json_decode($receivedJsonMessage);
 

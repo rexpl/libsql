@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Rexpl\Libsql;
 
+use Rexpl\Libsql\Contracts\WebsocketDriver;
 use Rexpl\Libsql\Hrana\Request\GetAutoCommitRequest;
 use Rexpl\Libsql\Hrana\Statement;
 use Rexpl\Libsql\Hrana\Version;
@@ -55,10 +56,10 @@ class Libsql
      *
      * @throws \Rexpl\Libsql\Exception\ConnectionException
      */
-    public function __construct(string $url, #[\SensitiveParameter] ?string $token, bool $secure = true)
+    public function __construct(string $url, #[\SensitiveParameter] ?string $token, bool $secure = true, ?WebsocketDriver $driver = null)
     {
         $token = new \SensitiveParameterValue($token);
-        $this->connection = new LibsqlConnection();
+        $this->connection = new LibsqlConnection($driver);
 
         $this->protocolVersion = $this->connection->connect($url, $token, $secure, static::VERSION);
     }
