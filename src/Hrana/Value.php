@@ -21,7 +21,7 @@ class Value
     {
         $result = match(\gettype($value)) {
             'integer' => new static('integer', (string) $value),
-            'boolean' => new static('integer', (int) $value),
+            'boolean' => new static('integer', $value ? '1' : '0'),
             'double' => new static('float', $value),
             'NULL' => new static('null', null),
             default => null,
@@ -33,7 +33,7 @@ class Value
         }
 
         // Is blob ... ?
-        if (!mb_detect_encoding($value, strict: true)) {
+        if (\is_string($value) && !mb_detect_encoding($value, strict: true)) {
             return new static('blob', \base64_encode($value));
         }
 
