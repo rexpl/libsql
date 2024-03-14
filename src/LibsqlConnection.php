@@ -6,25 +6,14 @@ namespace Rexpl\Libsql;
 
 use Phrity\Net\UriFactory;
 use Rexpl\Libsql\Contracts\ClientMessage;
-use Rexpl\Libsql\Contracts\Request;
-use Rexpl\Libsql\Contracts\Response;
 use Rexpl\Libsql\Contracts\ServerMessage;
 use Rexpl\Libsql\Contracts\WebsocketDriver;
 use Rexpl\Libsql\Exception\ConnectionException;
-use Rexpl\Libsql\Exception\LibsqlException;
 use Rexpl\Libsql\Hrana\Message\Client\HelloMessage;
-use Rexpl\Libsql\Hrana\Message\Client\RequestMessage;
 use Rexpl\Libsql\Hrana\Message\Server\HelloErrorMessage;
 use Rexpl\Libsql\Hrana\Message\Server\HelloOkMessage;
 use Rexpl\Libsql\Hrana\Message\Server\ResponseErrorMessage;
 use Rexpl\Libsql\Hrana\Message\Server\ResponseOkMessage;
-use Rexpl\Libsql\Hrana\Request\CloseStreamRequest;
-use Rexpl\Libsql\Hrana\Request\ExecuteRequest;
-use Rexpl\Libsql\Hrana\Request\OpenStreamRequest;
-use Rexpl\Libsql\Hrana\Response\CloseStreamResponse;
-use Rexpl\Libsql\Hrana\Response\OpenStreamResponse;
-use Rexpl\Libsql\Hrana\Statement;
-use Rexpl\Libsql\Hrana\StatementResult;
 use Rexpl\Libsql\Hrana\Version;
 use Rexpl\Libsql\Websockets\WebsocketDriverFactory;
 
@@ -40,11 +29,10 @@ class LibsqlConnection
      */
     protected Version $version;
 
-    protected int $streamId = 1;
-    protected int $requestId = 1;
-    protected bool $streamIsOpen = false;
-
-    public ?string $lastInsertedRowId = null;
+    /**
+     * @var int
+     */
+    protected int $streamIdIncrementor = 1;
 
     /**
      * @param \Rexpl\Libsql\Contracts\WebsocketDriver|null $driver
@@ -58,11 +46,10 @@ class LibsqlConnection
      * @param string $url
      * @param \SensitiveParameterValue $token
      * @param bool $secure
-     * @param string $libraryVersion
      *
      * @return Version The negotiated protocol version.
      */
-    public function connect(string $url, \SensitiveParameterValue $token, bool $secure, string $libraryVersion): Version
+    public function connect(string $url, \SensitiveParameterValue $token, bool $secure): Version
     {
         $uri = (new UriFactory())->createUri($url);
 
@@ -72,7 +59,7 @@ class LibsqlConnection
 
         $response = $this->driver->connect($uri, [
             'Sec-WebSocket-Protocol' => 'hrana3',
-            'X-Libsql-Client-Version' => \sprintf('libsql-remote-php-%s', $libraryVersion),
+            'X-Libsql-Client-Version' => \sprintf('libsql-remote-php-%s', Libsql::VERSION),
         ]);
 
         if (
@@ -81,18 +68,17 @@ class LibsqlConnection
         ) {
             $this->version = Version::HRANA_3;
         } else {
-            $this->disconnect(false);
+            $this->disconnect();
             throw new ConnectionException('Unsupported libsql server version.');
         }
 
         $message = $this->send(new HelloMessage($token));
 
         if ($message instanceof HelloOkMessage) {
-            $this->openStream();
             return $this->version;
         }
 
-        $this->disconnect(false);
+        $this->disconnect();
 
         if ($message instanceof HelloErrorMessage) {
             $message->error->throw(ConnectionException::class);
@@ -101,94 +87,23 @@ class LibsqlConnection
         throw new \LogicException('Invalid protocol implementation.');
     }
 
-    protected function openStream(): void
-    {
-        $response = $this->request(new OpenStreamRequest($this->streamId));
-
-        if ($response instanceof OpenStreamResponse) {
-            $this->streamIsOpen = true;
-            return;
-        }
-
-        // The client should close even streams for which the open_stream request returned an error.
-        $response = $this->request(new CloseStreamRequest($this->streamId));
-
-        $this->disconnect(false);
-
-        if (!$response instanceof CloseStreamResponse) {
-            throw new LibsqlException('Failed to close libsql stream, after failing to open libsql stream.');
-        }
-
-        throw new LibsqlException('Failed to open libsql stream.');
-    }
-
     public function isConnected(): bool
     {
         return $this->driver->isConnected();
     }
 
-    public function getStreamId(): int
+    public function getNextStreamId(): int
     {
-        return $this->streamId;
+        return $this->streamIdIncrementor++;
     }
 
-    public function disconnect(bool $closeStreams = true): void
+    public function disconnect(): void
     {
         if (!$this->driver->isConnected()) {
             return;
         }
 
-        if ($closeStreams && $this->streamIsOpen) {
-
-            $response = $this->request(new CloseStreamRequest($this->streamId));
-
-            if (!$response instanceof CloseStreamResponse) {
-                throw new LibsqlException('Failed to close libsql stream.');
-            }
-        }
-
         $this->driver->disconnect();
-    }
-
-    /**
-     * Executes the given statement.
-     *
-     * @param \Rexpl\Libsql\Hrana\Statement $statement
-     *
-     * @return \Rexpl\Libsql\Hrana\StatementResult
-     */
-    public function executeStatement(Statement $statement): StatementResult
-    {
-        $request = new ExecuteRequest($this->streamId, $statement);
-
-        /** @var \Rexpl\Libsql\Hrana\Response\ExecuteResponse $response */
-        $response = $this->request($request);
-
-        if ($response->statementResult->lastInsertedRowId !== null) {
-            $this->lastInsertedRowId = $response->statementResult->lastInsertedRowId;
-        }
-
-        return $response->statementResult;
-    }
-
-    /**
-     * @param \Rexpl\Libsql\Contracts\Request $request
-     *
-     * @return \Rexpl\Libsql\Contracts\Response
-     */
-    public function request(Request $request): Response
-    {
-        $message = $this->send(new RequestMessage($request, $this->requestId++));
-
-        if ($message instanceof ResponseOkMessage) {
-            return $message->response;
-        }
-
-        if ($message instanceof ResponseErrorMessage) {
-            $message->error->throw(LibsqlException::class);
-        }
-
-        throw new \LogicException('Invalid protocol implementation.');
     }
 
     /**

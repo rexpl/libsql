@@ -10,14 +10,14 @@ class LibsqlStatement
 {
     /**
      * @param string $query
-     * @param \Rexpl\Libsql\LibsqlConnection $connection
+     * @param \Rexpl\Libsql\LibsqlStream $stream
      * @param int $defaultFetchMode
      * @param mixed $classOrCallable
      * @param array $constructorArgs
      */
     public function __construct(
         protected string $query,
-        protected LibsqlConnection $connection,
+        protected LibsqlStream $stream,
         protected int $defaultFetchMode,
         protected mixed $classOrCallable,
         protected array $constructorArgs
@@ -46,7 +46,7 @@ class LibsqlStatement
     public function execute(?array $bindings = null): LibsqlResults
     {
         $statement = new Statement($this->query, $bindings, true);
-        $result = $this->connection->executeStatement($statement);
+        $result = $this->stream->executeStatement($statement);
 
         return new LibsqlResults($result, $this->defaultFetchMode, $this->classOrCallable, $this->constructorArgs);
     }

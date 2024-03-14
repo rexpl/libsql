@@ -25,14 +25,9 @@ class Libsql
     public const FETCH_FUNC = 10;
 
     /**
-     * @var \Rexpl\Libsql\Hrana\Version
+     * @var \Rexpl\Libsql\LibsqlStream
      */
-    public readonly Version $protocolVersion;
-
-    /**
-     * @var \Rexpl\Libsql\LibsqlConnection
-     */
-    protected LibsqlConnection $connection;
+    protected LibsqlStream $stream;
 
     /**
      * @var int
@@ -53,17 +48,37 @@ class Libsql
      * @param string $url
      * @param string|null $token
      * @param bool $secure
-     *
-     * @throws \Rexpl\Libsql\Exception\ConnectionException
+     * @param \Rexpl\Libsql\Contracts\WebsocketDriver|null $driver
+     * @param \Rexpl\Libsql\LibsqlStream|null $stream
      */
-    public function __construct(string $url, #[\SensitiveParameter] ?string $token, bool $secure = true, ?WebsocketDriver $driver = null)
-    {
-        $token = new \SensitiveParameterValue($token);
-        $this->connection = new LibsqlConnection($driver);
+    public function __construct(
+        string $url = 'libsql://127.0.0.1:8080',
+        #[\SensitiveParameter] ?string $token = null,
+        bool $secure = true,
+        ?WebsocketDriver $driver = null,
+        ?LibsqlStream $stream = null,
+    ) {
+        // If the stream is null we are opening the connection.
+        if ($stream === null) {
+            $token = new \SensitiveParameterValue($token);
 
-        $this->protocolVersion = $this->connection->connect($url, $token, $secure, static::VERSION);
+            $connection = new LibsqlConnection($driver);
+            $version = $connection->connect($url, $token, $secure);
+
+            $stream = new LibsqlStream($connection, $version);
+        }
+
+        $this->stream = $stream;
     }
 
+    /**
+     * Sets the default fetch mode for this stream and any created streams.
+     *
+     * @param int $mode The fetch mode see {@see \Rexpl\Libsql\Libsql::FETCH_}* constants.
+     * @param string|callable|null $classOrCallable Name of the created class for {@see \Rexpl\Libsql\Libsql::FETCH_CLASS},
+     * or the callable for {@see \Rexpl\Libsql\Libsql::FETCH_FUNC}.
+     * @param array $constructorArgs Elements of this array are passed to the constructor ({@see \Rexpl\Libsql\Libsql::FETCH_CLASS}).
+     */
     public function setDefaultFetchMode(int $mode, string|callable|null $classOrCallable = null, array $constructorArgs = []): void
     {
         $this->defaultFetchMode = $mode;
@@ -78,7 +93,7 @@ class Libsql
      */
     public function beginTransaction(): bool
     {
-        $this->connection->executeStatement(new Statement('BEGIN TRANSACTION', null, false));
+        $this->stream->executeStatement(new Statement('BEGIN TRANSACTION', null, false));
 
         return true;
     }
@@ -90,7 +105,7 @@ class Libsql
      */
     public function commit(): bool
     {
-        $this->connection->executeStatement(new Statement('COMMIT', null, false));
+        $this->stream->executeStatement(new Statement('COMMIT', null, false));
 
         return true;
     }
@@ -106,7 +121,7 @@ class Libsql
     public function exec(string $query, ?array $params = null): int
     {
         $libsqlStatement = new Statement($query, $params, false);
-        $statementResult = $this->connection->executeStatement($libsqlStatement);
+        $statementResult = $this->stream->executeStatement($libsqlStatement);
 
         return $statementResult->affectedRowsCount;
     }
@@ -118,11 +133,11 @@ class Libsql
      */
     public function inTransaction(): bool
     {
-        $streamId = $this->connection->getStreamId();
+        $streamId = $this->stream->streamId;
         $request = new GetAutoCommitRequest($streamId);
 
         /** @var \Rexpl\Libsql\Hrana\Response\GetAutoCommitResponse $response */
-        $response = $this->connection->request($request);
+        $response = $this->stream->request($request);
 
         return ! $response->isAutoCommit;
     }
@@ -134,7 +149,7 @@ class Libsql
      */
     public function lastInsertId(): ?string
     {
-        return $this->connection->lastInsertedRowId;
+        return $this->stream->lastInsertedRowId;
     }
 
     /**
@@ -148,7 +163,7 @@ class Libsql
     {
         return new LibsqlStatement(
             $query,
-            $this->connection,
+            $this->stream,
             $this->defaultFetchMode,
             $this->fetchClassOrCallable,
             $this->fetchConstructorArguments
@@ -164,7 +179,7 @@ class Libsql
     public function query(string $query, ?array $params = null): LibsqlResults
     {
         $libsqlStatement = new Statement($query, $params, true);
-        $statementResult = $this->connection->executeStatement($libsqlStatement);
+        $statementResult = $this->stream->executeStatement($libsqlStatement);
 
         return new LibsqlResults(
             $statementResult,
@@ -181,18 +196,50 @@ class Libsql
      */
     public function rollBack(): bool
     {
-        $this->connection->executeStatement(new Statement('ROLLBACK', null, false));
+        $this->stream->executeStatement(new Statement('ROLLBACK', null, false));
 
         return true;
     }
 
     /**
-     * Tells whether the client is still connected.
+     * Tells whether the connection is still open.
      *
      * @return bool
      */
     public function isConnected(): bool
     {
-        return $this->connection->isConnected();
+        return $this->stream->isConnected();
+    }
+
+    /**
+     * Returns the negotiated protocol version.
+     *
+     * @return \Rexpl\Libsql\Hrana\Version
+     */
+    public function getProtocolVersion(): Version
+    {
+        return $this->stream->protocolVersion;
+    }
+
+    /**
+     * Opens a new stream on the current connection. A single connection can host an arbitrary number of streams.
+     *
+     * @see https://github.com/tursodatabase/libsql/blob/main/docs/HRANA_3_SPEC.md#overview-1
+     *
+     * @return static
+     */
+    public function newStream(): static
+    {
+        $newStream = $this->stream->makeNewStream();
+
+        $instance = new static(stream: $newStream);
+
+        $instance->setDefaultFetchMode(
+            $this->defaultFetchMode,
+            $this->fetchClassOrCallable,
+            $this->fetchConstructorArguments
+        );
+
+        return $instance;
     }
 }
