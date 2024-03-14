@@ -163,7 +163,7 @@ class Libsql
      */
     public function query(string $query, ?array $params = null): LibsqlResults
     {
-        $libsqlStatement = new Statement($query, $params, false);
+        $libsqlStatement = new Statement($query, $params, true);
         $statementResult = $this->connection->executeStatement($libsqlStatement);
 
         return new LibsqlResults(
