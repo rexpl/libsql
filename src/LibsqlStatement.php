@@ -39,11 +39,11 @@ class LibsqlStatement
     }
 
     /**
-     * @param array $bindings
+     * @param array|null $bindings
      *
      * @return \Rexpl\Libsql\LibsqlResults
      */
-    public function execute(array $bindings): LibsqlResults
+    public function execute(?array $bindings = null): LibsqlResults
     {
         $statement = new Statement($this->query, $bindings, true);
         $result = $this->connection->executeStatement($statement);
