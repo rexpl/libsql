@@ -16,7 +16,7 @@ class Libsql
      *
      * @var int
      */
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.2.0';
 
     public const FETCH_ASSOC = 2;
     public const FETCH_NUM = 3;
