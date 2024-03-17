@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Rexpl\Libsql;
 
+use Rexpl\Libsql\Batch\Batch;
 use Rexpl\Libsql\Contracts\WebsocketDriver;
 use Rexpl\Libsql\Hrana\Request\GetAutoCommitRequest;
 use Rexpl\Libsql\Hrana\Statement;
@@ -241,5 +242,18 @@ class Libsql
         );
 
         return $instance;
+    }
+
+    /**
+     * @return \Rexpl\Libsql\Batch\Batch
+     */
+    public function newBatch(): Batch
+    {
+        return new Batch(
+            $this->stream,
+            $this->defaultFetchMode,
+            $this->fetchClassOrCallable,
+            $this->fetchConstructorArguments
+        );
     }
 }

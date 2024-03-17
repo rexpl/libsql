@@ -6,6 +6,7 @@ namespace Rexpl\Libsql\Hrana\Message\Server;
 
 use Rexpl\Libsql\Contracts\Response;
 use Rexpl\Libsql\Contracts\ServerMessage;
+use Rexpl\Libsql\Hrana\Response\BatchResponse;
 use Rexpl\Libsql\Hrana\Response\CloseStreamResponse;
 use Rexpl\Libsql\Hrana\Response\ExecuteResponse;
 use Rexpl\Libsql\Hrana\Response\GetAutoCommitResponse;
@@ -34,6 +35,7 @@ class ResponseOkMessage implements ServerMessage
             'close_stream' => CloseStreamResponse::parseResponse($version, $libsqlResponse),
             'execute' => ExecuteResponse::parseResponse($version, $libsqlResponse),
             'get_autocommit' => GetAutoCommitResponse::parseResponse($version, $libsqlResponse),
+            'batch' => BatchResponse::parseResponse($version, $libsqlResponse),
         };
 
         return new static($response);
