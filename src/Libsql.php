@@ -25,6 +25,13 @@ class Libsql
     public const FETCH_CLASS = 8;
     public const FETCH_FUNC = 10;
 
+    public const PARAM_NULL = 0;
+    public const PARAM_INT = 1;
+    public const PARAM_STR = 2;
+    public const PARAM_BOOL = 5;
+    public const PARAM_FLOAT = 6;
+    public const PARAM_BLOB = 7;
+
     /**
      * @var \Rexpl\Libsql\LibsqlStream
      */

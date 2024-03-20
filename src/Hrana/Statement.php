@@ -28,7 +28,9 @@ class Statement
 
         foreach ($this->arguments as $key => $argument) {
 
-            $value = Value::createForRequest($argument);
+            $value = $argument instanceof Value
+                ? $argument
+                : Value::createForRequest($argument);
             $valueArray = ['type' => $value->type];
 
             if ($value->type === 'blob') {

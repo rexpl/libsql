@@ -6,6 +6,7 @@ namespace Rexpl\Libsql\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Rexpl\Libsql\Hrana\Statement;
+use Rexpl\Libsql\Hrana\Value;
 use Rexpl\Libsql\Hrana\Version;
 
 class StatementTest extends TestCase
@@ -37,9 +38,9 @@ class StatementTest extends TestCase
                         'name' => 'named',
                         'value' => [
                             'type' => 'text',
-                            'value' => 'arg'
-                        ]
-                    ]
+                            'value' => 'arg',
+                        ],
+                    ],
                 ],
             ],
             $request,
@@ -57,8 +58,43 @@ class StatementTest extends TestCase
                 'args' => [
                     [
                         'type' => 'text',
-                        'value' => 'arg'
-                    ]
+                        'value' => 'arg',
+                    ],
+                ],
+            ],
+            $request,
+            ['sql', 'want_rows']
+        );
+    }
+
+    public function test_statement_with_bind_value(): void
+    {
+        $statement = new Statement(
+            'query',
+            [
+                'test' => new Value('text', 'text'),
+                new Value('text', 'test'),
+            ],
+            true
+        );
+        $request = $statement->getStatementForRequest(Version::HRANA_3);
+
+        $this->assertArrayIsIdenticalToArrayIgnoringListOfKeys(
+            [
+                'named_args' => [
+                    [
+                        'name' => 'test',
+                        'value' => [
+                            'type' => 'text',
+                            'value' => 'text',
+                        ],
+                    ],
+                ],
+                'args' => [
+                    [
+                        'type' => 'text',
+                        'value' => 'test',
+                    ],
                 ],
             ],
             $request,
