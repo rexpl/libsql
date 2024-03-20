@@ -17,6 +17,11 @@ class LibsqlResults implements \Iterator
     protected int $currentIndex = 0;
 
     /**
+     * @var int
+     */
+    protected int $iterationIndex = 0;
+
+    /**
      * @param \Rexpl\Libsql\Hrana\StatementResult $result
      * @param int $defaultFetchMode
      * @param mixed $classOrCallable
@@ -57,15 +62,24 @@ class LibsqlResults implements \Iterator
      */
     public function fetch(?int $mode = null, string|callable|null $classOrCallable = null, array $constructorArgs = []): mixed
     {
+        $index = $this->currentIndex++;
+
+        if (!isset($this->result->rows[$index])) {
+            return null;
+        }
+
+        $row = $this->result->rows[$index];
+
         return match ($mode ?? $this->defaultFetchMode) {
-            Libsql::FETCH_ASSOC => $this->fetchAssoc(),
-            Libsql::FETCH_NUM => $this->fetchNum(),
-            Libsql::FETCH_OBJ => $this->fetchObj(),
+            Libsql::FETCH_ASSOC => $this->fetchAssoc($row),
+            Libsql::FETCH_NUM => $this->fetchNum($row),
+            Libsql::FETCH_OBJ => $this->fetchObj($row),
             Libsql::FETCH_CLASS => $this->fetchClass(
+                $row,
                 $classOrCallable ?? $this->classOrCallable,
                 empty($this->constructorArgs) ? $this->constructorArgs : $constructorArgs
             ),
-            Libsql::FETCH_FUNC => $this->fetchFunction($classOrCallable ?? $this->classOrCallable),
+            Libsql::FETCH_FUNC => $this->fetchFunction($row, $classOrCallable ?? $this->classOrCallable),
             default => throw new LibsqlException('Unknown fetch mode.'),
         };
     }
@@ -96,16 +110,12 @@ class LibsqlResults implements \Iterator
     }
 
     /**
-     * @return array<string,mixed>|null
+     * @param array<\Rexpl\Libsql\Hrana\Value> $row
+     *
+     * @return array<string,mixed>
      */
-    public function fetchAssoc(): ?array
+    protected function fetchAssoc(array $row): array
     {
-        $row = $this->getCurrentRow();
-
-        if ($row === null) {
-            return null;
-        }
-
         $returnRow = [];
 
         foreach ($this->result->columns as $key => $column) {
@@ -118,7 +128,7 @@ class LibsqlResults implements \Iterator
     /**
      * @return array<array<string,mixed>>
      */
-    public function fetchAllAssoc(): array
+    protected function fetchAllAssoc(): array
     {
         $result = [];
 
@@ -136,19 +146,19 @@ class LibsqlResults implements \Iterator
     }
 
     /**
-     * @return array|null
+     * @param array<\Rexpl\Libsql\Hrana\Value> $row
+     *
+     * @return array
      */
-    public function fetchNum(): ?array
+    protected function fetchNum(array $row): array
     {
-        return null !== ($row = $this->getCurrentRow())
-            ? \array_map(fn (Value $value): mixed => $value->value, $row)
-            : null;
+        return \array_map(fn (Value $value): mixed => $value->value, $row);
     }
 
     /**
      * @return array<array>
      */
-    public function fetchAllNum(): array
+    protected function fetchAllNum(): array
     {
         $result = [];
 
@@ -160,35 +170,32 @@ class LibsqlResults implements \Iterator
     }
 
     /**
-     * @return \stdClass|null
+     * @param array<\Rexpl\Libsql\Hrana\Value> $row
+     *
+     * @return \stdClass
      */
-    public function fetchObj(): ?\stdClass
+    protected function fetchObj(array $row): \stdClass
     {
-        return $this->fetchClass(\stdClass::class);
+        return $this->fetchClass($row, \stdClass::class);
     }
 
     /**
      * @return array<\stdClass>
      */
-    public function fetchAllObj(): array
+    protected function fetchAllObj(): array
     {
         return $this->fetchAllClass(\stdClass::class);
     }
 
     /**
+     * @param array<\Rexpl\Libsql\Hrana\Value> $row
      * @param string $class
      * @param array $constructorArgs
      *
-     * @return object|null
+     * @return object
      */
-    public function fetchClass(string $class, array $constructorArgs = []): ?object
+    protected function fetchClass(array $row, string $class, array $constructorArgs = []): object
     {
-        $row = $this->getCurrentRow();
-
-        if ($row === null) {
-            return null;
-        }
-
         $returnRow = new $class(...$constructorArgs);
 
         foreach ($this->result->columns as $key => $column) {
@@ -204,7 +211,7 @@ class LibsqlResults implements \Iterator
      *
      * @return array<object>
      */
-    public function fetchAllClass(string $class, array $constructorArgs = []): array
+    protected function fetchAllClass(string $class, array $constructorArgs = []): array
     {
         $result = [];
 
@@ -222,18 +229,13 @@ class LibsqlResults implements \Iterator
     }
 
     /**
+     * @param array<\Rexpl\Libsql\Hrana\Value> $row
      * @param callable $callable
      *
      * @return mixed
      */
-    public function fetchFunction(callable $callable): mixed
+    protected function fetchFunction(array $row, callable $callable): mixed
     {
-        $row = $this->getCurrentRow();
-
-        if ($row === null) {
-            return null;
-        }
-
         $columns = \array_map(fn (Column $column): string => $column->name, $this->result->columns);
         $rows = \array_map(fn (Value $value): mixed => $value->value, $row);
 
@@ -245,7 +247,7 @@ class LibsqlResults implements \Iterator
      *
      * @return array
      */
-    public function fetchAllFunction(callable $callable): array
+    protected function fetchAllFunction(callable $callable): array
     {
         $columns = \array_map(fn (Column $column): string => $column->name, $this->result->columns);
         $result = [];
@@ -258,14 +260,6 @@ class LibsqlResults implements \Iterator
         }
 
         return $result;
-    }
-
-    /**
-     * @return array<\Rexpl\Libsql\Hrana\Value>|null
-     */
-    protected function getCurrentRow(): ?array
-    {
-        return $this->result->rows[++$this->currentIndex] ?? null;
     }
 
     /**
@@ -300,27 +294,35 @@ class LibsqlResults implements \Iterator
 
     public function current(): mixed
     {
-        $this->currentIndex--;
-        return $this->fetch($this->defaultFetchMode, $this->classOrCallable, $this->constructorArgs);
+        $row = $this->result->rows[$this->iterationIndex];
+
+        return match ($this->defaultFetchMode) {
+            Libsql::FETCH_ASSOC => $this->fetchAssoc($row),
+            Libsql::FETCH_NUM => $this->fetchNum($row),
+            Libsql::FETCH_OBJ => $this->fetchObj($row),
+            Libsql::FETCH_CLASS => $this->fetchClass($row, $this->classOrCallable, $this->constructorArgs),
+            Libsql::FETCH_FUNC => $this->fetchFunction($row, $this->classOrCallable),
+            default => throw new LibsqlException('Unknown fetch mode.'),
+        };
     }
 
     public function next(): void
     {
-        $this->currentIndex++;
+        $this->iterationIndex++;
     }
 
     public function key(): mixed
     {
-        return $this->currentIndex;
+        return $this->iterationIndex;
     }
 
     public function valid(): bool
     {
-        return isset($this->result->rows[$this->currentIndex]);
+        return isset($this->result->rows[$this->iterationIndex]);
     }
 
     public function rewind(): void
     {
-        $this->currentIndex = 0;
+        $this->iterationIndex = 0;
     }
 }

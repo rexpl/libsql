@@ -174,4 +174,18 @@ class ResultsTest extends TestCase
         $this->assertObjectHasProperty('name', $firstRow);
         $this->assertObjectHasProperty('age', $firstRow);
     }
+
+    public function test_get_one_row(): void
+    {
+        $libsql = TestDriver::make();
+
+        $query = new \stdClass();
+        $query->rowCount = 1;
+        $query->cols = ['name'];
+
+        $results = $libsql->query(\serialize($query));
+        $firstRow = $results->fetch();
+
+        $this->assertArrayHasKey('name', $firstRow);
+    }
 }
